@@ -3,8 +3,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import json
-import base64
-import io
 import altair as alt
 from openai import OpenAI
 
@@ -45,19 +43,34 @@ def ask_llm(prompt):
 
 
 # =========================================================
-# 3) CARGA DE DATOS FINDER
+# 3) CARGA DE DATOS FINDER (versión con uploader)
 # =========================================================
+
+st.subheader("📂 Cargar datasets de Finder (2018–2021)")
+
+uploaded_files = st.file_uploader(
+    "Sube los archivos CSV de Finder (4 archivos: 2018, 2019, 2020, 2021)",
+    accept_multiple_files=True,
+    type=["csv"]
+)
+
+def procesar_archivo(csv):
+    df = pd.read_csv(
+        csv,
+        encoding="latin1",
+        low_memory=False,
+        na_values=["NADA","NULL","null","nan","NaN",""]
+    )
+    return df
+
+
 @st.cache_data
-def load_data():
+def preparar_dataframe(dfs_dict):
+    # Concatenar
+    df = pd.concat(dfs_dict.values(), ignore_index=True)
 
-    df2018 = load_csv_from_secret("finder_2018")
-    df2019 = load_csv_from_secret("finder_2019")
-    df2020 = load_csv_from_secret("finder_2020")
-    df2021 = load_csv_from_secret("finder_2021")
-
-    df = pd.concat([df2018, df2019, df2020, df2021], ignore_index=True)
-
-    df["FechaMov"] = pd.to_datetime(df["FechaMov"], format="%d/%m/%Y", errors="ignore")
+    # Procesamiento estándar
+    df["FechaMov"] = pd.to_datetime(df["FechaMov"], format="%d/%m/%Y", errors="coerce")
     df = df.dropna(subset=["FechaMov"])
 
     df["Año"] = df["FechaMov"].dt.year
@@ -68,26 +81,62 @@ def load_data():
         7:"Julio",8:"Agosto",9:"Septiembre",10:"Octubre",
         11:"Noviembre",12:"Diciembre"
     }
-    df["NombreMes"] = df["Mes"].map(meses)
 
+    df["NombreMes"] = df["Mes"].map(meses)
     df["Cantidad"] = pd.to_numeric(df["Cantidad"], errors="coerce")
+
     df["Familia"] = df["Familia"].astype(str).str.strip()
+    df.loc[df["Familia"].str.lower().isin(["nan", "", "none"]), "Familia"] = np.nan
 
     return df
 
 
-def load_csv_from_secret(key):
-    encoded = st.secrets["data"][key]
-    decoded = base64.b64decode(encoded)
-    return pd.read_csv(
-        io.BytesIO(decoded),
-        encoding="latin1",
-        low_memory=False,
-        na_values=["NADA","NULL","null","nan","NaN",""],
-    )
+# ==========================================
+# Validación + botón “Procesar”
+# ==========================================
 
+if uploaded_files:
+    st.success(f"{len(uploaded_files)} archivo(s) cargado(s).")
 
-df = load_data()
+    # Detectar por nombre a qué año pertenece cada archivo
+    dfs_dict = {}
+
+    for uf in uploaded_files:
+        name = uf.name
+
+        if "2018" in name:
+            dfs_dict[2018] = procesar_archivo(uf)
+        elif "2019" in name:
+            dfs_dict[2019] = procesar_archivo(uf)
+        elif "2020" in name:
+            dfs_dict[2020] = procesar_archivo(uf)
+        elif "2021" in name:
+            dfs_dict[2021] = procesar_archivo(uf)
+        else:
+            st.error(f"No se reconoce el año en el archivo: {name}")
+
+    # El usuario debe cargar los 4 archivos
+    if len(dfs_dict) == 4:
+
+        if st.button("Procesar datos"):
+            df = preparar_dataframe(dfs_dict)
+            st.success("Datos cargados y combinados correctamente 🎉")
+
+            # Guardar en sesión para todo el módulo
+            st.session_state["df_finder"] = df
+
+    else:
+        st.warning("Sube los 4 archivos: 2018, 2019, 2020 y 2021.")
+
+# ==========================================
+# Recuperar df para usar en todo el módulo
+# ==========================================
+
+if "df_finder" in st.session_state:
+    df = st.session_state["df_finder"]
+else:
+    st.stop()
+
 
 # =========================================================
 # 4) INTÉRPRETE DE INTENCIÓN (LLM → JSON)
