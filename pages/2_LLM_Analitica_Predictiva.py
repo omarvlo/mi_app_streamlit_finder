@@ -55,21 +55,26 @@ def ask_llm(prompt: str) -> str:
 
 
 # =========================================================
-# CARGA DE DATOS
+# CARGA DE DATOS (UPLOAD SEGURO)
 # =========================================================
-@st.cache_data
-def load_data():
-    archivos = {
-        2018: "FinderMX_data_2018.csv",
-        2019: "FinderMX_data_2019.csv",
-        2020: "FinderMX_data_2020.csv",
-        2021: "FinderMX_data_2021.csv",
-    }
+st.sidebar.header("📂 Carga de datos Finder")
 
+uploaded_files = st.sidebar.file_uploader(
+    "Carga los archivos FinderMX (2018–2021)",
+    type="csv",
+    accept_multiple_files=True
+)
+
+if not uploaded_files:
+    st.warning("Carga los archivos CSV para continuar.")
+    st.stop()
+
+@st.cache_data
+def load_data_from_upload(files):
     dfs = []
-    for _, ruta in archivos.items():
+    for f in files:
         df_temp = pd.read_csv(
-            ruta,
+            f,
             encoding="latin1",
             na_values=["NADA", "NULL", "null", "NaN", "nan", ""],
             low_memory=False
@@ -99,8 +104,7 @@ def load_data():
 
     return df
 
-df = load_data()
-
+df = load_data_from_upload(uploaded_files)
 
 # =========================================================
 # HELPERS DE MODELADO
@@ -295,3 +299,4 @@ chart = (
 )
 
 st.altair_chart(chart, use_container_width=True)
+
